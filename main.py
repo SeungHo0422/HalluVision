@@ -468,7 +468,7 @@ class HallucinationVisionPipeline:
             f.write("└── PIPELINE_REPORT.md     # This report\n")
             f.write("```\n\n")
         
-        print(f"📋 Final report generated: {report_path}")
+        print(f"Final report generated: {report_path}")
 
 
 def main():
@@ -493,7 +493,7 @@ def main():
     
     # Check API key
     if not Settings.validate_api_key():
-        print("❌ OpenAI API key not found. Please set OPENAI_API_KEY environment variable.")
+        print("OpenAI API key not found. Please set OPENAI_API_KEY environment variable.")
         return
     
     # Initialize and run pipeline
