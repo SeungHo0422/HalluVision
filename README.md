@@ -59,7 +59,7 @@ final_pipeline/
 └── requirements.txt    # 의존성
 ```
 
-## 📈 Output Structure
+## Output Structure
 ```
 output_directory/
 ├── scraped_data/
