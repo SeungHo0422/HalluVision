@@ -37,14 +37,25 @@ from typing import Dict, List
 import ujson
 from sklearn.metrics import precision_recall_fscore_support
 
+try:
+    from .span_match import score_doc_label
+except ImportError:
+    from span_match import score_doc_label
+
 LABELS = ["Malware", "System", "Indicator", "Vulnerability", "Organization"]
 
 
-def _qa_doc_stats(original: dict, qa_predictions: List[dict]) -> dict:
+def _qa_doc_stats(
+    original: dict,
+    qa_predictions: List[dict],
+    match_mode: str = "exact",
+    f1_threshold: float = 0.5,
+) -> dict:
     """Per-doc stats compatible with analysis_qa.py logic but emitting JSON.
 
-    Mirrors `evaluate_qa_vs_ner` (analysis_qa.py:81-128) but adds per-label
-    precision/recall/f1 per document.
+    Mirrors `evaluate_qa_vs_ner` (analysis_qa.py:81-128). ``match_mode``
+    routes through ``span_match.score_doc_label`` so the same extractor
+    produces exact / token_f1 / jaccard / relaxed metric files.
     """
     out: Dict[str, dict] = {}
     id_to_qa = {
@@ -69,17 +80,17 @@ def _qa_doc_stats(original: dict, qa_predictions: List[dict]) -> dict:
                 pred = items[2]
             else:
                 pred = items[idx]
-            gold = set(map(str.lower, ner_entry.get(label, [])))
-            pred_set = set() if pred.lower() == "no answer" else {pred.lower()}
-            match = bool(pred_set & gold)
-            y_true = [1 if match else 0]
-            y_pred = [1 if pred_set else 0]
+            gold = list(ner_entry.get(label, []))
+            match_int, _ = score_doc_label(pred, gold, match_mode, f1_threshold)
+            is_pred = 0 if (not pred or pred.lower().strip() == "no answer") else 1
+            y_true = [match_int]
+            y_pred = [is_pred]
             p, r, f1, _ = precision_recall_fscore_support(
                 y_true, y_pred, average="binary", zero_division=0
             )
             out[str(doc_id)][label] = {"precision": float(p), "recall": float(r), "f1": float(f1)}
-            overall_t.append(int(match))
-            overall_p.append(int(bool(pred_set)))
+            overall_t.append(match_int)
+            overall_p.append(is_pred)
         p, r, f1, _ = precision_recall_fscore_support(
             overall_t, overall_p, average="binary", zero_division=0
         )
@@ -148,6 +159,15 @@ def main() -> None:
         "--split-commas", action="store_true",
         help="(summary task) split comma-joined entities like eval_summary.py does for 3.5",
     )
+    parser.add_argument(
+        "--match-mode", default="exact",
+        choices=["exact", "token_f1", "jaccard", "relaxed"],
+        help="(qa task) span match mode (Reviewer 2 #10)",
+    )
+    parser.add_argument(
+        "--f1-threshold", type=float, default=0.5,
+        help="(qa task) F1 threshold for token_f1/jaccard/relaxed",
+    )
     parser.add_argument("--output", required=True)
     args = parser.parse_args()
 
@@ -159,7 +179,11 @@ def main() -> None:
     if args.task == "qa":
         if not isinstance(preds, list):
             raise SystemExit("QA predictions must be a JSON list (gpt_results_*.json shape)")
-        stats = _qa_doc_stats(original, preds)
+        stats = _qa_doc_stats(
+            original, preds,
+            match_mode=args.match_mode,
+            f1_threshold=args.f1_threshold,
+        )
     else:
         if not isinstance(preds, dict):
             raise SystemExit("Summary predictions must be a JSON dict {doc_id: {label: [...]}}")
