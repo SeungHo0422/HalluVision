@@ -344,15 +344,33 @@ class HallucinationVisionPipeline:
         
         print("  - Visualization generation completed")
     
+    def load_pre_scraped(self, json_path: str) -> List[Dict[str, Any]]:
+        """
+        Skip Step 1 (scraping) and inject already-scraped data, e.g. from
+        ``data_scraper.thn_csv_loader``. Used for the held-out THN evaluation
+        (Reviewer 2 #5).
+        """
+        print("=" * 50)
+        print(f"STEP 1 (skipped): loading pre-scraped data from {json_path}")
+        print("=" * 50)
+        with open(json_path, "r", encoding="utf-8") as f:
+            self.scraped_data = json.load(f)
+        out_path = self.output_dir / "scraped_data" / "scraped_data.json"
+        out_path.parent.mkdir(parents=True, exist_ok=True)
+        self.data_scraper.save_results(self.scraped_data, str(out_path))
+        print(f"  loaded {len(self.scraped_data)} pre-scraped docs")
+        return self.scraped_data
+
     def run_complete_pipeline(
         self,
-        malware_file_path: str,
+        malware_file_path: Optional[str] = None,
         original_ner_path: Optional[str] = None,
         sources: List[str] = ["threatpost"],
         tasks: List[str] = ["summarization", "qa"],
         wiki_paragraph_level: int = 3,
         prompt_version: str = "v2",
-        threatpost_urls_file: Optional[str] = None
+        threatpost_urls_file: Optional[str] = None,
+        pre_scraped_json: Optional[str] = None,
     ) -> Dict[str, Any]:
         """
         전체 파이프라인 실행
@@ -376,10 +394,15 @@ class HallucinationVisionPipeline:
         print()
         
         try:
-            # Step 1: Data Scraping
-            scraped_data = self.run_data_scraping(
-                malware_file_path, sources, wiki_paragraph_level, threatpost_urls_file
-            )
+            # Step 1: Data Scraping (or load pre-scraped, Reviewer 2 #5)
+            if pre_scraped_json:
+                scraped_data = self.load_pre_scraped(pre_scraped_json)
+            else:
+                if not malware_file_path:
+                    raise ValueError("malware_file_path required when pre_scraped_json is not provided")
+                scraped_data = self.run_data_scraping(
+                    malware_file_path, sources, wiki_paragraph_level, threatpost_urls_file
+                )
             
             # Step 2: LLM Processing
             llm_results = self.run_llm_processing(tasks, prompt_version)
@@ -486,9 +509,13 @@ def main():
                        help="Number of Wikipedia paragraphs to extract")
     parser.add_argument("--prompt-version", default="v2",
                        help="Prompt version for summarization")
-    parser.add_argument("--threatpost-urls", 
+    parser.add_argument("--threatpost-urls",
                        help="Path to Threatpost URLs file (default: auto-detect)")
-    
+    parser.add_argument(
+        "--pre-scraped",
+        help="Path to pre-scraped JSON (e.g. thn_csv_loader output); skips Step 1",
+    )
+
     args = parser.parse_args()
     
     # Check API key
@@ -506,7 +533,8 @@ def main():
         tasks=args.tasks,
         wiki_paragraph_level=args.wiki_paragraphs,
         prompt_version=args.prompt_version,
-        threatpost_urls_file=args.threatpost_urls
+        threatpost_urls_file=args.threatpost_urls,
+        pre_scraped_json=args.pre_scraped,
     )
 
 
