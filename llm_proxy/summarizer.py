@@ -9,6 +9,7 @@ import time
 import traceback
 
 from .gpt_client import GPTClient
+from .base_client import BaseLLMClient, get_client_for_model
 from config.settings import Settings
 
 
@@ -18,18 +19,24 @@ class AbstractiveSummarizer:
     CTI 도메인에 특화된 악성코드 정보 요약 기능 제공
     """
     
-    def __init__(self, 
+    def __init__(self,
                  model: str = Settings.DEFAULT_MODEL,
-                 api_key: Optional[str] = None):
+                 api_key: Optional[str] = None,
+                 client: Optional[BaseLLMClient] = None):
         """
-        Initialize Abstractive Summarizer
-        
+        Initialize Abstractive Summarizer.
+
         Args:
-            model (str): Model to use for summarization
-            api_key (Optional[str]): OpenAI API key
+            model: Logical model name (resolved via Settings.MODEL_VERSIONS)
+            api_key: OpenAI API key (only used when client is None and model
+                is an OpenAI logical name)
+            client: Optional pre-built BaseLLMClient. When omitted,
+                routes the model through ``get_client_for_model`` so the
+                same summarizer works against GPT or Llama-3 backends
+                (Reviewer 2 #4).
         """
         self.model = model
-        self.client = GPTClient(api_key, model)
+        self.client = client if client is not None else get_client_for_model(model, api_key=api_key)
         
         # Prompt versions
         self.prompt_versions = {

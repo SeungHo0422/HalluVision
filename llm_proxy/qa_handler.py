@@ -9,6 +9,7 @@ import time
 import traceback
 
 from .gpt_client import GPTClient
+from .base_client import BaseLLMClient, get_client_for_model
 from config.settings import Settings
 
 
@@ -18,18 +19,21 @@ class QuestionAnsweringHandler:
     5개 카테고리(Malware, System, Indicator, Vulnerability, Organization)에 대한 질답 수행
     """
     
-    def __init__(self, 
+    def __init__(self,
                  model: str = Settings.DEFAULT_MODEL,
-                 api_key: Optional[str] = None):
+                 api_key: Optional[str] = None,
+                 client: Optional[BaseLLMClient] = None):
         """
-        Initialize QA Handler
-        
+        Initialize QA Handler.
+
         Args:
-            model (str): Model to use for QA
-            api_key (Optional[str]): OpenAI API key
+            model: Logical model name (resolved via Settings.MODEL_VERSIONS)
+            api_key: OpenAI API key (only for default OpenAI backend)
+            client: Optional pre-built BaseLLMClient — routes to Llama-3
+                or other backends (Reviewer 2 #4).
         """
         self.model = model
-        self.client = GPTClient(api_key, model)
+        self.client = client if client is not None else get_client_for_model(model, api_key=api_key)
         self.labels = Settings.QA_LABELS
     
     def create_qa_prompt(self, source_text: str) -> str:
