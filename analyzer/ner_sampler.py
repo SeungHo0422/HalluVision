@@ -7,9 +7,21 @@ so that each label receives roughly equal coverage, and within a label
 we draw a mix of "doc has the label predicted" and "doc has the label
 absent" cells so reviewers can score both precision and recall errors.
 
+Two annotators independently fill the label columns; agreement (Cohen's κ,
+percent agreement) is then produced by ``analyzer.agreement`` with
+``--levels correct,partial,incorrect --col-a annotator_a_correct
+--col-b annotator_b_correct``.
+
 Output columns (doccano-friendly):
-    doc_id, label, predicted_entities, original_text_excerpt,
-    annotator_correct (blank), annotator_notes (blank)
+    doc_id, label, kind, predicted_entities, original_text_excerpt,
+    annotator_a_correct (blank), annotator_b_correct (blank),
+    annotator_missed_entities (blank), annotator_notes (blank)
+
+For ``precision_check`` cells annotators score the listed
+``predicted_entities`` as correct / partial / incorrect. For
+``recall_check`` cells (``predicted_entities`` empty) annotators read the
+excerpt and list any true ``label`` entities the NER missed in
+``annotator_missed_entities`` (and mark ``correct`` if none were missed).
 
 Usage::
 
@@ -104,7 +116,9 @@ def main() -> None:
         writer.writerow([
             "doc_id", "label", "kind", "predicted_entities",
             "original_text_excerpt",
-            "annotator_correct",  # to be filled: 1/0/partial per entity
+            "annotator_a_correct",       # to be filled: correct/partial/incorrect
+            "annotator_b_correct",       # to be filled: correct/partial/incorrect
+            "annotator_missed_entities",  # recall_check: entities NER missed
             "annotator_notes",
         ])
         for row in rows:
@@ -112,7 +126,7 @@ def main() -> None:
             excerpt = text[: args.excerpt_chars]
             writer.writerow([
                 row["doc_id"], row["label"], row["kind"],
-                row["predicted_entities"], excerpt, "", "",
+                row["predicted_entities"], excerpt, "", "", "", "",
             ])
 
     print(f"[ner_sampler] wrote {len(rows)} cells → {args.output}")

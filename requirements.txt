@@ -17,6 +17,13 @@ beautifulsoup4>=4.11.0
 matplotlib>=3.6.0
 seaborn>=0.12.0
 
+# Embeddings — analyzer/cosine_similarity.py (jina-embeddings-v3).
+# Only needed to regenerate the per-document original-vs-summary cosine;
+# the rest of the analyzer runs without these.
+torch>=2.0.0
+transformers>=4.35.0,<5  # jina-v3 remote code breaks on transformers 5.x (_tied_weights_keys 리네임)
+einops>=0.7.0  # required by jina-v3's remote modeling code
+
 # Progress tracking
 tqdm>=4.64.0
 

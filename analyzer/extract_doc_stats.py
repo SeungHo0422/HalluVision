@@ -50,6 +50,7 @@ def _qa_doc_stats(
     qa_predictions: List[dict],
     match_mode: str = "exact",
     f1_threshold: float = 0.5,
+    normalize: bool = False,
 ) -> dict:
     """Per-doc stats compatible with analysis_qa.py logic but emitting JSON.
 
@@ -63,6 +64,18 @@ def _qa_doc_stats(
         for item in qa_predictions
         if "id" in item and "qa_text" in item
     }
+    if normalize:
+        # Recover the canonical 5-field form from prose answers (Reviewer 2 #4:
+        # Llama-3 answers correctly but ignores the output format). No-op on
+        # already-canonical GPT output, so published numbers are unaffected.
+        try:
+            from .qa_format import normalize_qa_text
+        except ImportError:
+            from qa_format import normalize_qa_text
+        id_to_qa = {
+            doc_id: (normalize_qa_text(text) or text)
+            for doc_id, text in id_to_qa.items()
+        }
     for doc_id, qa_str in id_to_qa.items():
         items = [p.strip() for p in qa_str.strip("{} ").split(",") if p.strip()]
         if len(items) != len(LABELS):
@@ -168,6 +181,11 @@ def main() -> None:
         "--f1-threshold", type=float, default=0.5,
         help="(qa task) F1 threshold for token_f1/jaccard/relaxed",
     )
+    parser.add_argument(
+        "--normalize-qa", action="store_true",
+        help="(qa task) recover the canonical {a1..a5} form from prose answers "
+             "before scoring (Reviewer 2 #4); no-op for compliant output",
+    )
     parser.add_argument("--output", required=True)
     args = parser.parse_args()
 
@@ -183,6 +201,7 @@ def main() -> None:
             original, preds,
             match_mode=args.match_mode,
             f1_threshold=args.f1_threshold,
+            normalize=args.normalize_qa,
         )
     else:
         if not isinstance(preds, dict):

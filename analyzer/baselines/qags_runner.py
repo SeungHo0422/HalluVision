@@ -37,6 +37,8 @@ except ImportError:  # pragma: no cover
     from final_pipeline.llm_proxy.base_client import BaseLLMClient, get_client_for_model  # type: ignore
     from final_pipeline.analyzer.span_match import token_f1  # type: ignore
 
+from .runner_util import load_subset, retry, run_docs
+
 
 QUESTION_GEN_PROMPT = """Generate {n} factual questions about the SUMMARY below. \
 Each question must target a specific entity, number, or claim that appears in \
@@ -58,24 +60,26 @@ QUESTION: {question}
 
 
 def _gen_questions(summary: str, n: int, judge: BaseLLMClient,
-                   judge_model: Optional[str]) -> List[str]:
-    text = judge.simple_prompt(
+                   judge_model: Optional[str]) -> tuple:
+    """Return ``(questions, raw_response)`` — the raw text is kept for auditing."""
+    text = retry(lambda: judge.simple_prompt(
         QUESTION_GEN_PROMPT.format(n=n, summary=summary.strip()),
         model=judge_model,
         temperature=0.0,
-    )
-    lines = [re.sub(r"^[\-\*\d\.\)\s]+", "", l).strip("?").strip() for l in text.splitlines()]
-    questions = [l + "?" for l in lines if l]
-    return questions[:n]
+    ), what="question generation")
+    lines = [re.sub(r"^[\-\*\d\.\)\s]+", "", l).strip().rstrip("?").strip()
+             for l in text.splitlines()]
+    questions = [l + "?" for l in lines if l and not l.endswith(":")]
+    return questions[:n], text
 
 
 def _answer(text: str, question: str, judge: BaseLLMClient,
             judge_model: Optional[str]) -> str:
-    return judge.simple_prompt(
+    return retry(lambda: judge.simple_prompt(
         ANSWER_PROMPT.format(text=text.strip()[:8000], question=question),
         model=judge_model,
         temperature=0.0,
-    ).strip()
+    ), what="answering").strip()
 
 
 def _answers_agree(a: str, b: str) -> float:
@@ -95,36 +99,44 @@ def score_doc(doc: dict, n_questions: int, judge: BaseLLMClient,
     if not summary.strip() or not source.strip():
         return {"doc_id": str(doc.get("id")),
                 "qags": None, "n_questions": 0, "note": "missing summary/source"}
-    questions = _gen_questions(summary, n_questions, judge, judge_model)
+    questions, raw_questions = _gen_questions(summary, n_questions, judge, judge_model)
     pairs = []
     for q in questions:
         sa = _answer(summary, q, judge, judge_model)
         ta = _answer(source, q, judge, judge_model)
+        agree = _answers_agree(sa, ta)
         pairs.append({"question": q, "summary_answer": sa, "source_answer": ta,
-                      "agreement": _answers_agree(sa, ta)})
+                      "agreement": agree,
+                      # Why this pair scored what it did, without re-deriving it.
+                      "match": ("unanswerable-both" if agree == 1.0 and
+                                "UNANSWERABLE" in sa.upper()
+                                else "unanswerable-one" if
+                                ("UNANSWERABLE" in sa.upper()) != ("UNANSWERABLE" in ta.upper())
+                                else "exact" if agree == 1.0
+                                else "partial" if agree > 0
+                                else "none")})
     score = sum(p["agreement"] for p in pairs) / len(pairs) if pairs else None
     return {
         "doc_id": str(doc.get("id")),
         "qags": score,
         "n_questions": len(pairs),
         "pairs": pairs,
+        # Audit trail: the judge's unparsed question-generation output.
+        "summary_text": summary,
+        "raw_questions": raw_questions,
     }
 
 
 def run(subset_path: str, output_path: str, judge_model: str, n_questions: int,
         client: Optional[BaseLLMClient] = None,
         api_key: Optional[str] = None,
-        limit: Optional[int] = None) -> List[dict]:
-    payload = json.loads(Path(subset_path).read_text(encoding="utf-8"))
-    docs = payload.get("docs", [])
-    if limit is not None:
-        docs = docs[:limit]
+        limit: Optional[int] = None,
+        workers: int = 4) -> List[dict]:
+    docs = load_subset(subset_path, limit)
     judge = client if client is not None else get_client_for_model(judge_model, api_key=api_key)
-    results = [score_doc(d, n_questions, judge, judge_model) for d in docs]
-    Path(output_path).parent.mkdir(parents=True, exist_ok=True)
-    Path(output_path).write_text(json.dumps(results, ensure_ascii=False, indent=2),
-                                 encoding="utf-8")
-    return results
+    return run_docs(docs, output_path,
+                    lambda d: score_doc(d, n_questions, judge, judge_model),
+                    workers=workers, label="qags")
 
 
 def main() -> None:
@@ -134,10 +146,12 @@ def main() -> None:
     p.add_argument("--judge-model", default="gpt-4o-mini")
     p.add_argument("--n-questions", type=int, default=5)
     p.add_argument("--limit", type=int, default=None)
+    p.add_argument("--workers", type=int, default=4,
+                   help="Concurrent docs (each doc's calls stay sequential)")
     args = p.parse_args()
 
     results = run(args.subset, args.output, args.judge_model, args.n_questions,
-                  limit=args.limit)
+                  limit=args.limit, workers=args.workers)
     n_scored = sum(1 for r in results if r.get("qags") is not None)
     print(f"[qags] scored {n_scored}/{len(results)} → {args.output}")
 

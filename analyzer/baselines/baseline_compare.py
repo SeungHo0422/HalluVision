@@ -96,6 +96,27 @@ def _binarize(values: List[float], direction: str) -> List[int]:
     return [1 if v <= median else 0 for v in values]
 
 
+def _binarize_baseline(values: List[float]) -> Tuple[List[int], str]:
+    """
+    Binarise a *factuality* score (low = hallucinated).
+
+    A median split silently collapses when the score is ceiling-bound:
+    FactScore puts >50% of docs at exactly 1.0, so ``v <= median`` marks
+    every single doc as hallucinated and the contingency table degenerates
+    to one column. When that happens we fall back to the only split the
+    data supports — "scored strictly below the maximum", i.e. the doc has
+    at least one non-supported claim — and report which rule was used.
+    """
+    if not values:
+        return [], "median"
+    median = statistics.median(values)
+    bins = [1 if v <= median else 0 for v in values]
+    if len(set(bins)) > 1:
+        return bins, "median"
+    top = max(values)
+    return [1 if v < top else 0 for v in values], f"below-max (<{top:g})"
+
+
 def _contingency(a: List[int], b: List[int]) -> Dict[str, int]:
     out = {"agree_halluc": 0, "agree_faithful": 0,
            "halluvision_only": 0, "baseline_only": 0}
@@ -129,14 +150,19 @@ def render_markdown(corr_rows: List[dict], contingency_rows: List[dict]) -> str:
         "",
         "## Median-split agreement contingency",
         "",
-        "Both signals binarised at their median; positive class = hallucinated.",
+        "HalluVision metrics are split at their median; positive class = "
+        "hallucinated. The baseline split falls back from the median to "
+        "`below-max` when the baseline is ceiling-bound (see `split` column) — "
+        "a median split on a score whose median equals its maximum labels "
+        "every document hallucinated and is uninformative.",
         "",
-        "| HV metric | Baseline | both halluc | both faithful | HV only | baseline only |",
-        "|---|---|---:|---:|---:|---:|",
+        "| HV metric | Baseline | split | baseline pos. | both halluc | both faithful | HV only | baseline only |",
+        "|---|---|---|---:|---:|---:|---:|---:|",
     ]
     for r in contingency_rows:
         lines.append(
-            f"| {r['hv_metric']} | {r['baseline']} | "
+            f"| {r['hv_metric']} | {r['baseline']} | {r['baseline_split']} | "
+            f"{r['baseline_positives']} | "
             f"{r['contingency']['agree_halluc']} | "
             f"{r['contingency']['agree_faithful']} | "
             f"{r['contingency']['halluvision_only']} | "
@@ -171,10 +197,12 @@ def compare(hv: Dict[str, Dict[str, float]],
             })
             # baseline scores are *factuality* scores → low value = hallucinated
             hv_bin = _binarize(xs, direction)
-            base_bin = _binarize(ys, "lower")
+            base_bin, base_rule = _binarize_baseline(ys)
             contingency_rows.append({
                 "hv_metric": hv_metric,
                 "baseline": bname,
+                "baseline_split": base_rule,
+                "baseline_positives": sum(base_bin),
                 "contingency": _contingency(hv_bin, base_bin),
             })
     return corr_rows, contingency_rows

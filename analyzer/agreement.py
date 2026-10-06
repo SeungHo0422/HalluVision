@@ -1,7 +1,15 @@
 """
-Inter-annotator agreement for the human hallucination labels (R2#3, R3).
+Inter-annotator agreement for two-annotator labeling sheets.
 
-Given a CSV with two annotators' labels (``label_a`` / ``label_b``)
+Serves two tasks with the same machinery:
+
+* §7 human hallucination labeling (R2#3, R3) — default columns
+  ``label_a`` / ``label_b`` with levels ``faithful/partial/hallucinated``.
+* §2a NER subsample validation (R2#2a) — columns
+  ``annotator_a_correct`` / ``annotator_b_correct`` with levels
+  ``correct/partial/incorrect`` (pass ``--col-a/--col-b/--levels``).
+
+Given a CSV with two annotators' labels (``col_a`` / ``col_b``)
 plus optional metric columns (``cosine_sim``, ``qa_precision``,
 ``freq_distance``), this module computes:
 
@@ -19,9 +27,17 @@ a clear note rather than the whole report failing.
 
 Usage::
 
+    # §7 hallucination labels (defaults)
     python -m final_pipeline.analyzer.agreement \
         --labels notes/human_labels_2026-XX.csv \
         --output notes/human_validation.md
+
+    # §2a NER validation labels
+    python -m final_pipeline.analyzer.agreement \
+        --labels notes/ner_validation_sample.csv \
+        --levels correct,partial,incorrect \
+        --col-a annotator_a_correct --col-b annotator_b_correct \
+        --output notes/ner_validation_agreement.md
 """
 
 from __future__ import annotations
@@ -33,8 +49,13 @@ from collections import Counter
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
-LABEL_LEVELS = ["faithful", "partial", "hallucinated"]
-HALLUC_POSITIVE = {"partial", "hallucinated"}
+# Default levels/columns preserve the §7 hallucination behavior; the CLI
+# (and compute_report) can override them for other labeling tasks (e.g. §2a).
+DEFAULT_LEVELS = ["faithful", "partial", "hallucinated"]
+DEFAULT_COL_A = "label_a"
+DEFAULT_COL_B = "label_b"
+# Backward-compatible alias (some callers/tests reference LABEL_LEVELS).
+LABEL_LEVELS = DEFAULT_LEVELS
 
 
 def _cohen_kappa(a: List[str], b: List[str], labels: List[str]) -> float:
@@ -58,13 +79,14 @@ def _confusion(a: List[str], b: List[str], labels: List[str]) -> List[List[int]]
     return mat
 
 
-def _majority_vote(a: str, b: str) -> Optional[str]:
+def _majority_vote(a: str, b: str, levels: List[str]) -> Optional[str]:
     if not a or not b:
         return a or b or None
     if a == b:
         return a
-    # tie-break: more severe label wins (paper conservative: count as halluc)
-    severity = {"faithful": 0, "partial": 1, "hallucinated": 2}
+    # tie-break: more severe label wins (severity = position in `levels`,
+    # so the last level is the most severe — paper-conservative choice).
+    severity = {lvl: i for i, lvl in enumerate(levels)}
     return max(a, b, key=lambda x: severity.get(x, -1))
 
 
@@ -128,19 +150,32 @@ def load_labels(path: str) -> List[dict]:
     return rows
 
 
-def compute_report(rows: List[dict], metric_cols: List[str]) -> dict:
-    a = [r.get("label_a", "").strip().lower() for r in rows]
-    b = [r.get("label_b", "").strip().lower() for r in rows]
-    both = [(x, y) for x, y in zip(a, b) if x in LABEL_LEVELS and y in LABEL_LEVELS]
+def compute_report(
+    rows: List[dict],
+    metric_cols: List[str],
+    col_a: str = DEFAULT_COL_A,
+    col_b: str = DEFAULT_COL_B,
+    levels: Optional[List[str]] = None,
+) -> dict:
+    levels = levels or DEFAULT_LEVELS
+    # Positive (=1) for the metric-vs-vote binary target: any level above the
+    # first (baseline) one. For hallucination this is {partial, hallucinated};
+    # for NER validation the metric block is unused (no metric cols).
+    baseline = levels[0]
+    positive = set(levels[1:])
+
+    a = [r.get(col_a, "").strip().lower() for r in rows]
+    b = [r.get(col_b, "").strip().lower() for r in rows]
+    both = [(x, y) for x, y in zip(a, b) if x in levels and y in levels]
     a_clean = [x for x, _ in both]
     b_clean = [y for _, y in both]
 
-    overall_kappa = _cohen_kappa(a_clean, b_clean, LABEL_LEVELS)
-    confusion = _confusion(a_clean, b_clean, LABEL_LEVELS)
+    overall_kappa = _cohen_kappa(a_clean, b_clean, levels)
+    confusion = _confusion(a_clean, b_clean, levels)
     pct_agree = (sum(1 for x, y in both if x == y) / len(both)) if both else float("nan")
 
     per_class: Dict[str, dict] = {}
-    for lbl in LABEL_LEVELS:
+    for lbl in levels:
         a_bin = ["yes" if x == lbl else "no" for x in a_clean]
         b_bin = ["yes" if y == lbl else "no" for y in b_clean]
         per_class[lbl] = {
@@ -149,9 +184,9 @@ def compute_report(rows: List[dict], metric_cols: List[str]) -> dict:
             "support_b": sum(1 for y in b_clean if y == lbl),
         }
 
-    majority = [_majority_vote(x, y) for x, y in zip(a, b)]
+    majority = [_majority_vote(x, y, levels) for x, y in zip(a, b)]
     majority_bin = [
-        1 if (m in HALLUC_POSITIVE) else (0 if m == "faithful" else None)
+        1 if (m in positive) else (0 if m == baseline else None)
         for m in majority
     ]
 
@@ -173,6 +208,7 @@ def compute_report(rows: List[dict], metric_cols: List[str]) -> dict:
         }
 
     return {
+        "levels": levels,
         "n_rows": len(rows),
         "n_dual_labeled": len(both),
         "overall_kappa": overall_kappa,
@@ -185,8 +221,9 @@ def compute_report(rows: List[dict], metric_cols: List[str]) -> dict:
 
 
 def render_markdown(report: dict, source_path: str) -> str:
+    levels = report.get("levels", DEFAULT_LEVELS)
     lines = [
-        "# Human Validation Report (R2#3, R3)",
+        "# Inter-annotator Validation Report",
         "",
         f"Source labels: `{source_path}`",
         f"Total rows: {report['n_rows']}",
@@ -194,7 +231,7 @@ def render_markdown(report: dict, source_path: str) -> str:
         "",
         "## Inter-annotator agreement",
         "",
-        f"- Overall Cohen's κ (3-class faithful/partial/hallucinated): **{report['overall_kappa']:.3f}**",
+        f"- Overall Cohen's κ ({len(levels)}-class {'/'.join(levels)}): **{report['overall_kappa']:.3f}**",
         f"- Percent agreement: **{report['percent_agreement']:.2%}**",
         "",
         "### Per-class one-vs-rest κ",
@@ -211,11 +248,11 @@ def render_markdown(report: dict, source_path: str) -> str:
         "",
         "### Confusion matrix (rows = annotator A, cols = annotator B)",
         "",
-        "| | " + " | ".join(LABEL_LEVELS) + " |",
-        "|" + "---|" * (len(LABEL_LEVELS) + 1),
+        "| | " + " | ".join(levels) + " |",
+        "|" + "---|" * (len(levels) + 1),
     ]
-    for i, lbl in enumerate(LABEL_LEVELS):
-        row = [lbl] + [str(report["confusion_matrix"][i][j]) for j in range(len(LABEL_LEVELS))]
+    for i, lbl in enumerate(levels):
+        row = [lbl] + [str(report["confusion_matrix"][i][j]) for j in range(len(levels))]
         lines.append("| " + " | ".join(row) + " |")
 
     lines += [
@@ -249,14 +286,19 @@ def render_markdown(report: dict, source_path: str) -> str:
 
 def main() -> None:
     p = argparse.ArgumentParser(description="Inter-annotator agreement + metric correlation")
-    p.add_argument("--labels", required=True, help="CSV with label_a/label_b + optional metric columns")
+    p.add_argument("--labels", required=True, help="CSV with two annotator columns + optional metric columns")
     p.add_argument("--metric-cols", nargs="*", default=["cosine_sim", "qa_precision", "freq_distance"],
                    help="Numeric columns to correlate against majority vote")
+    p.add_argument("--levels", default=",".join(DEFAULT_LEVELS),
+                   help="Comma-separated rating levels, least→most severe (default: %(default)s)")
+    p.add_argument("--col-a", default=DEFAULT_COL_A, help="Annotator A column name")
+    p.add_argument("--col-b", default=DEFAULT_COL_B, help="Annotator B column name")
     p.add_argument("--output", required=True, help="Markdown report path")
     args = p.parse_args()
 
+    levels = [lvl.strip().lower() for lvl in args.levels.split(",") if lvl.strip()]
     rows = load_labels(args.labels)
-    report = compute_report(rows, args.metric_cols)
+    report = compute_report(rows, args.metric_cols, col_a=args.col_a, col_b=args.col_b, levels=levels)
     md = render_markdown(report, args.labels)
     Path(args.output).parent.mkdir(parents=True, exist_ok=True)
     Path(args.output).write_text(md, encoding="utf-8")
