@@ -1,0 +1,175 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Transform: AWS::Serverless-2016-10-31
+Description: >
+  HalluVision human-validation backend (R2 #3). A single Python Lambda behind an
+  HTTP API persists each label to an S3 bucket (source of truth) and mirrors it
+  to a DynamoDB table (fast resume index). A separate S3 bucket serves the
+  static SPA.
+
+Parameters:
+  AllowedOrigin:
+    Type: String
+    Default: "*"
+    Description: >
+      CORS allow-origin. Use "*" for local dev; after you know the site bucket
+      URL, redeploy with that exact origin to lock it down.
+  AdminKey:
+    Type: String
+    Default: "halluvision-admin"
+    NoEcho: true
+    Description: >
+      Shared key the admin dashboard sends as the x-admin-key header. This is a
+      light gate to prevent accidental edits/deletes, not real authentication.
+
+Globals:
+  Function:
+    Timeout: 10
+    MemorySize: 128
+    Runtime: python3.12
+
+Resources:
+  # ---- Data store: one JSON object per (annotator, doc) = idempotent autosave
+  DataBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub "halluvision-human-eval-${AWS::AccountId}"
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+
+  # ---- Resume index: PK=annotator, SK=doc_id (single Query powers GET)
+  LabelsTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: halluvision-human-labels
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: annotator
+          AttributeType: S
+        - AttributeName: doc_id
+          AttributeType: S
+      KeySchema:
+        - AttributeName: annotator
+          KeyType: HASH
+        - AttributeName: doc_id
+          KeyType: RANGE
+
+  # ---- API handler (POST /submit, GET /submissions)
+  ApiFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: halluvision-human-eval-api
+      Handler: handler.lambda_handler
+      CodeUri: src/
+      Environment:
+        Variables:
+          DATA_BUCKET: !Ref DataBucket
+          LABELS_TABLE: !Ref LabelsTable
+          ALLOWED_ORIGIN: !Ref AllowedOrigin
+          ADMIN_KEY: !Ref AdminKey
+      Policies:
+        - S3CrudPolicy:
+            BucketName: !Sub "halluvision-human-eval-${AWS::AccountId}"
+        - DynamoDBCrudPolicy:
+            TableName: !Ref LabelsTable
+      Events:
+        Submit:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref HttpApi
+            Path: /submit
+            Method: POST
+        Submissions:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref HttpApi
+            Path: /submissions
+            Method: GET
+        AdminAll:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref HttpApi
+            Path: /admin/all
+            Method: GET
+        AdminLog:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref HttpApi
+            Path: /admin/log
+            Method: GET
+        AdminUpdate:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref HttpApi
+            Path: /admin/update
+            Method: POST
+        AdminDelete:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref HttpApi
+            Path: /admin/delete
+            Method: POST
+
+  HttpApi:
+    Type: AWS::Serverless::HttpApi
+    Properties:
+      CorsConfiguration:
+        AllowOrigins:
+          - !Ref AllowedOrigin
+        AllowMethods:
+          - GET
+          - POST
+          - OPTIONS
+        AllowHeaders:
+          - content-type
+          - x-admin-key
+
+  # ---- Static site bucket (deploy webapp/ here with `aws s3 sync`)
+  SiteBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub "halluvision-human-eval-site-${AWS::AccountId}"
+      WebsiteConfiguration:
+        IndexDocument: index.html
+        ErrorDocument: index.html
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: false
+        BlockPublicPolicy: false
+        IgnorePublicAcls: false
+        RestrictPublicBuckets: false
+
+  SiteBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref SiteBucket
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Sid: PublicReadForWebsite
+            Effect: Allow
+            Principal: "*"
+            Action: s3:GetObject
+            Resource: !Sub "arn:aws:s3:::${SiteBucket}/*"
+
+Outputs:
+  ApiUrl:
+    Description: Base URL — paste into webapp/config.js as API_BASE_URL
+    Value: !Sub "https://${HttpApi}.execute-api.${AWS::Region}.amazonaws.com"
+  DataBucketName:
+    Description: S3 bucket holding label submissions (use with merge_human_labels.py)
+    Value: !Ref DataBucket
+  LabelsTableName:
+    Description: DynamoDB resume index (use with merge_human_labels.py)
+    Value: !Ref LabelsTable
+  SiteBucketName:
+    Description: Static site bucket — `aws s3 sync webapp/ s3://<this>`
+    Value: !Ref SiteBucket
+  SiteUrl:
+    Description: Public URL evaluators open in their browser
+    Value: !Sub "http://${SiteBucket}.s3-website.${AWS::Region}.amazonaws.com"

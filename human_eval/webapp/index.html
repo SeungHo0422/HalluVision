@@ -1,0 +1,185 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>HalluVision · Human Validation</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <!-- language toggle (fixed, top-right) -->
+    <button id="lang-btn" class="lang-btn" title="Language / 언어">
+      <span class="globe">🌐</span><span id="lang-label">한국어</span>
+    </button>
+
+    <!-- ================= Screen 1: Landing / intro ================= -->
+    <main id="screen-landing" class="screen active">
+      <div class="landing-wrap">
+        <header class="landing-hero">
+          <div class="logo-badge">HV</div>
+          <h1>HalluVision <span data-i18n="hero_sub">Human Validation</span></h1>
+          <p class="tagline" data-i18n="tagline">
+            Read each source article, then judge whether the model's summary and
+            answers are grounded in it. Your labels calibrate our automatic
+            hallucination detectors.
+          </p>
+        </header>
+
+        <section class="card guidelines">
+          <h2 data-i18n="how_title">How to label</h2>
+          <p class="muted" data-i18n-html="how_intro">
+            Judge <strong>only against the source article</strong> shown on the
+            left. Paraphrasing and reasonable generalization are fine.
+          </p>
+          <ul class="label-legend">
+            <li class="lg-faithful">
+              <span class="dot"></span>
+              <div>
+                <b data-i18n="lbl_faithful">Faithful</b>
+                <p data-i18n="desc_faithful">Summary and all 5 answers are fully supported by the article.</p>
+              </div>
+            </li>
+            <li class="lg-partial">
+              <span class="dot"></span>
+              <div>
+                <b data-i18n="lbl_partial">Partial</b>
+                <p data-i18n="desc_partial">Some entity is absent or misattributed, but the overall meaning holds.</p>
+              </div>
+            </li>
+            <li class="lg-hallucinated">
+              <span class="dot"></span>
+              <div>
+                <b data-i18n="lbl_hallucinated">Hallucinated</b>
+                <p data-i18n="desc_hallucinated">Introduces a fact/number/actor not in the article — a clear fabrication.</p>
+              </div>
+            </li>
+          </ul>
+        </section>
+
+        <section class="card identity">
+          <h2 data-i18n="who_title">Who is labeling?</h2>
+          <p class="muted" data-i18n="who_intro">Pick your identity. Your progress is saved and resumes automatically when you return with the same identity.</p>
+          <div id="annotator-choices" class="annotator-choices"><!-- filled by JS --></div>
+
+          <!-- Other: custom name + affiliation -->
+          <div id="other-fields" class="other-fields" hidden>
+            <input id="other-name" class="text-input" type="text" data-i18n-ph="ph_name" placeholder="Your name" />
+            <input id="other-affil" class="text-input" type="text" data-i18n-ph="ph_affil" placeholder="Affiliation" />
+          </div>
+
+          <button id="start-btn" class="btn-primary" disabled data-i18n="start_btn">Start / Resume</button>
+          <p id="landing-status" class="landing-status"></p>
+        </section>
+
+        <footer class="landing-foot muted" data-i18n="foot">
+          100 stratified gpt-4o-mini outputs · 3-way ordinal labels · R2&nbsp;#3
+        </footer>
+      </div>
+    </main>
+
+    <!-- ================= Screen 2: Labeling ================= -->
+    <main id="screen-label" class="screen">
+      <div class="topbar">
+        <div class="topbar-left">
+          <span class="logo-badge sm">HV</span>
+          <span id="who-label" class="who"></span>
+        </div>
+        <div class="progress">
+          <div class="progress-track"><div id="progress-fill" class="progress-fill"></div></div>
+          <span id="progress-text" class="progress-text">0 / 0</span>
+        </div>
+        <div class="topbar-right">
+          <span id="save-state" class="save-state" data-state="saved">Saved</span>
+        </div>
+      </div>
+
+      <div class="label-grid">
+        <!-- Left: article (the ground truth to read) -->
+        <section class="article-col">
+          <div class="col-head">
+            <h2><span class="src-icon">📄</span> <span data-i18n="src_article">Source article</span></h2>
+            <span id="doc-badge" class="doc-badge"></span>
+          </div>
+          <p class="col-note muted" data-i18n="src_note">This is the ground truth. Judge everything on the right against this text.</p>
+          <article id="article-body" class="article-body"></article>
+        </section>
+
+        <!-- Right: model output (what you check) + controls -->
+        <section class="eval-col">
+          <div class="model-output">
+            <div class="mo-head">
+              <span class="mo-icon">🤖</span>
+              <div>
+                <h2 data-i18n="model_output">Model output</h2>
+                <p class="mo-sub" data-i18n="model_output_sub">Generated by gpt-4o-mini — this is what you are evaluating, not something you write.</p>
+              </div>
+            </div>
+
+            <div class="panel mo-panel">
+              <h3><span class="tag">SUMMARY</span> <span data-i18n="model_summary">Model summary</span></h3>
+              <p id="summary-body" class="summary-body"></p>
+            </div>
+
+            <div class="panel mo-panel">
+              <h3><span class="tag">Q&amp;A</span> <span data-i18n="model_answers">Model answers</span></h3>
+              <table class="qa-table">
+                <thead>
+                  <tr><th data-i18n="th_question">Question</th><th data-i18n="th_model_answer">Model's answer</th></tr>
+                </thead>
+                <tbody id="qa-body"></tbody>
+              </table>
+            </div>
+          </div>
+
+          <div class="panel decision">
+            <div class="check-banner">
+              <span class="chk">✅</span>
+              <span data-i18n="check_prompt">Do the summary and all 5 answers above stay grounded in the source article?</span>
+            </div>
+            <h3 data-i18n="your_judgment">Your judgment</h3>
+            <div class="label-buttons" id="label-buttons">
+              <button class="lbtn faithful" data-label="faithful">
+                <span class="k">1</span> <span data-i18n="lbl_faithful">Faithful</span>
+              </button>
+              <button class="lbtn partial" data-label="partial">
+                <span class="k">2</span> <span data-i18n="lbl_partial">Partial</span>
+              </button>
+              <button class="lbtn hallucinated" data-label="hallucinated">
+                <span class="k">3</span> <span data-i18n="lbl_hallucinated">Hallucinated</span>
+              </button>
+            </div>
+            <textarea id="reasoning" class="reasoning" rows="3"
+              data-i18n-ph="ph_reasoning" placeholder="Optional: why? (a phrase is enough)"></textarea>
+          </div>
+
+          <div class="nav-row">
+            <button id="prev-btn" class="btn-ghost" data-i18n="prev">← Prev</button>
+            <span class="hint" data-i18n-html="nav_hint">Keys: <kbd>1</kbd><kbd>2</kbd><kbd>3</kbd> label · <kbd>←</kbd><kbd>→</kbd> move · <kbd>Enter</kbd> next unlabeled</span>
+            <button id="next-btn" class="btn-ghost" data-i18n="next">Next →</button>
+          </div>
+        </section>
+      </div>
+    </main>
+
+    <!-- ================= Screen 3: Done ================= -->
+    <main id="screen-done" class="screen">
+      <div class="done-wrap card">
+        <div class="done-check">✓</div>
+        <h1 data-i18n="done_title">All done</h1>
+        <p id="done-count" class="muted"></p>
+        <div class="dist" id="done-dist"></div>
+        <div class="done-actions">
+          <button id="review-btn" class="btn-ghost" data-i18n="back_items">Back to items</button>
+          <button id="download-btn" class="btn-primary" data-i18n="download">Download my labels (JSON)</button>
+        </div>
+        <p class="muted small" data-i18n="done_note">
+          Agreement (Cohen's κ) is computed offline by the author after both
+          evaluators finish — you won't see the other annotator's labels here.
+        </p>
+      </div>
+    </main>
+
+    <script src="config.js"></script>
+    <script src="app.js"></script>
+  </body>
+</html>

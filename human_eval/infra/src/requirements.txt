@@ -1,0 +1,3 @@
+# boto3 is preinstalled in the Lambda python3.12 runtime; pinning it here keeps
+# `sam local` reproducible. No other dependencies.
+boto3>=1.34

@@ -9,10 +9,12 @@ sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
 import json
 from pathlib import Path
+
+import pytest
 from analyzer.qa_analyzer import QAAnalyzer
 from analyzer.visualization import VisualizationManager
 
-def test_qa_analysis():
+def run_qa_analysis():
     """기존 데이터로 QA 분석 테스트"""
     
     print("="*60)
@@ -118,6 +120,15 @@ def test_qa_analysis():
         traceback.print_exc()
         return None
 
+@pytest.fixture(scope="module", name="qa_results")
+def _qa_results_fixture():
+    return run_qa_analysis()
+
+
+def test_qa_analysis(qa_results):
+    assert qa_results, "QA analysis returned nothing"
+
+
 def test_visualization(qa_results):
     """시각화 테스트"""
     
@@ -170,7 +181,7 @@ def main():
     print("🔍 gpt-3.5-turbo 결과와 ground truth 비교")
     
     # QA 분석 테스트
-    qa_results = test_qa_analysis()
+    qa_results = run_qa_analysis()
     
     # 시각화 테스트
     test_visualization(qa_results)

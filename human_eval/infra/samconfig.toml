@@ -1,0 +1,13 @@
+version = 0.1
+
+[default.deploy.parameters]
+stack_name = "halluvision"
+resolve_s3 = true
+s3_prefix = "halluvision"
+region = "ap-northeast-2"
+capabilities = "CAPABILITY_IAM"
+parameter_overrides = "AllowedOrigin=\"*\""
+image_repositories = []
+
+[default.global.parameters]
+region = "ap-northeast-2"

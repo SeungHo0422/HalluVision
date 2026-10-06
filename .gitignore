@@ -219,3 +219,8 @@ test_analysis_output/**
 pipeline_output/**
 # R2 #6 baseline runner checkpoints (resumable, regenerable)
 notes/*.partial.jsonl
+
+# reproduction workspace built by scripts/prepare_workspace.py, downloaded CyNER checkpoint
+workspace/
+cyner_ckpt/
+!human_eval/webapp/data/

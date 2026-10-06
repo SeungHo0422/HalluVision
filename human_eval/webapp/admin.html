@@ -1,0 +1,157 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>HalluVision · Admin</title>
+    <link rel="stylesheet" href="styles.css" />
+    <link rel="stylesheet" href="admin.css" />
+  </head>
+  <body class="admin">
+    <!-- ===== Gate ===== -->
+    <main id="screen-gate" class="screen active">
+      <div class="landing-wrap narrow">
+        <header class="landing-hero">
+          <div class="logo-badge">HV</div>
+          <h1>HalluVision <span>Admin</span></h1>
+          <p class="tagline">Monitor annotator progress, inspect every label, and audit the change log.</p>
+        </header>
+        <section class="card">
+          <h2>Admin key</h2>
+          <p class="muted">Enter the <code>AdminKey</code> you deployed the stack with.</p>
+          <input id="admin-key" class="text-input full" type="password" placeholder="x-admin-key" />
+          <button id="gate-btn" class="btn-primary full">Open dashboard</button>
+          <p id="gate-status" class="landing-status"></p>
+        </section>
+      </div>
+    </main>
+
+    <!-- ===== Dashboard ===== -->
+    <main id="screen-admin" class="screen">
+      <div class="topbar">
+        <div class="topbar-left">
+          <span class="logo-badge sm">HV</span>
+          <span class="who">Admin dashboard</span>
+        </div>
+        <nav class="tabs">
+          <button class="tab active" data-tab="overview">Overview</button>
+          <button class="tab" data-tab="items">By item</button>
+          <button class="tab" data-tab="log">Activity log</button>
+        </nav>
+        <div class="topbar-right">
+          <span id="last-sync" class="save-state"></span>
+          <button id="refresh-btn" class="btn-ghost sm">↻ Refresh</button>
+        </div>
+      </div>
+
+      <div class="admin-wrap">
+        <!-- Overview -->
+        <section id="tab-overview" class="tab-panel active">
+          <div class="stat-row" id="stat-row"></div>
+          <div class="panel">
+            <h3>Annotator progress <span class="muted small">(click a column to sort)</span></h3>
+            <table class="admin-table" id="tbl-overview" data-table="overview">
+              <thead>
+                <tr>
+                  <th class="sortable" data-sort="name">Annotator</th>
+                  <th class="sortable" data-sort="status">Status</th>
+                  <th class="sortable" data-sort="pct">Progress</th>
+                  <th class="num sortable" data-sort="labeled">Labeled</th>
+                  <th class="num sortable" data-sort="assigned">Assigned</th>
+                  <th>Distribution</th>
+                  <th class="sortable" data-sort="first">First</th>
+                  <th class="sortable" data-sort="last">Last activity</th>
+                  <th></th>
+                </tr>
+              </thead>
+              <tbody id="overview-body"></tbody>
+            </table>
+          </div>
+          <div id="detail-panel" class="panel" hidden>
+            <h3><span id="detail-title"></span>
+              <button id="detail-close" class="btn-ghost sm right">✕ Close</button>
+            </h3>
+            <table class="admin-table" id="tbl-detail" data-table="detail">
+              <thead>
+                <tr>
+                  <th class="num sortable" data-sort="idx">#</th>
+                  <th class="sortable" data-sort="doc_id">doc_id</th>
+                  <th class="sortable" data-sort="label">Label</th>
+                  <th class="sortable" data-sort="reasoning">Reasoning</th>
+                  <th class="sortable" data-sort="scored">Scored at</th>
+                  <th class="num sortable" data-sort="revision">rev</th>
+                  <th>Actions</th>
+                </tr>
+              </thead>
+              <tbody id="detail-body"></tbody>
+            </table>
+          </div>
+        </section>
+
+        <!-- By item -->
+        <section id="tab-items" class="tab-panel">
+          <div class="panel">
+            <h3>Per-item labels <span class="muted small">(click a column to sort)</span>
+              <label class="filter-toggle right">
+                <input type="checkbox" id="only-disagree" /> only disagreements
+              </label>
+            </h3>
+            <table class="admin-table" id="tbl-items" data-table="items">
+              <thead>
+                <tr>
+                  <th class="num sortable" data-sort="idx">#</th>
+                  <th class="sortable" data-sort="doc_id">doc_id</th>
+                  <th class="sortable" data-sort="excerpt">Article</th>
+                  <th class="sortable" data-sort="disagree">Labels</th>
+                  <th class="sortable" data-sort="consensus">Consensus</th>
+                  <th class="num sortable" data-sort="n">n</th>
+                </tr>
+              </thead>
+              <tbody id="items-body"></tbody>
+            </table>
+          </div>
+        </section>
+
+        <!-- Log -->
+        <section id="tab-log" class="tab-panel">
+          <div class="panel">
+            <h3>Activity log <span class="muted small">(click a column to sort)</span></h3>
+            <table class="admin-table" id="tbl-log" data-table="log">
+              <thead>
+                <tr>
+                  <th class="sortable" data-sort="ts">When</th>
+                  <th class="sortable" data-sort="action">Action</th>
+                  <th class="sortable" data-sort="actor">Actor</th>
+                  <th class="sortable" data-sort="target">Target</th>
+                  <th>Change</th>
+                </tr>
+              </thead>
+              <tbody id="log-body"></tbody>
+            </table>
+          </div>
+        </section>
+      </div>
+    </main>
+
+    <!-- ===== Edit modal ===== -->
+    <div id="edit-modal" class="modal" hidden>
+      <div class="modal-card">
+        <h3>Edit label</h3>
+        <p class="muted small" id="edit-target"></p>
+        <div class="label-buttons" id="edit-labels">
+          <button class="lbtn faithful" data-label="faithful">Faithful</button>
+          <button class="lbtn partial" data-label="partial">Partial</button>
+          <button class="lbtn hallucinated" data-label="hallucinated">Hallucinated</button>
+        </div>
+        <textarea id="edit-reasoning" class="reasoning" rows="3" placeholder="Reasoning"></textarea>
+        <div class="modal-actions">
+          <button id="edit-cancel" class="btn-ghost">Cancel</button>
+          <button id="edit-save" class="btn-primary">Save change</button>
+        </div>
+      </div>
+    </div>
+
+    <script src="config.js"></script>
+    <script src="admin.js"></script>
+  </body>
+</html>
