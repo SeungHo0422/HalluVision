@@ -32,7 +32,7 @@ For the NER steps install CyNER and download the checkpoint:
 
 ```bash
 pip install git+https://github.com/aiforsec/CyNER nltk
-huggingface-cli download <HF_REPO> --local-dir cyner_ckpt
+huggingface-cli download Ricky-dev/halluvision-cyner-xlmr-base --local-dir cyner_ckpt
 export CYNER_CKPT=$PWD/cyner_ckpt
 ```
 
@@ -68,8 +68,10 @@ cd workspace
 ../scripts/run_llama_eval.sh               # Llama-3 vs GPT on the 500-article subset (SKIP_CYNER=1 without the checkpoint)
 ```
 
-See `REPRODUCE.md` for the remaining studies and for which steps need a GPU, the CyNER
-checkpoint, or an OpenAI key.
+The remaining studies (baselines, human validation, NER audit, ablations) are driven by the
+`analyzer` CLIs; each module's docstring documents its inputs, and the dataset's
+steps-to-reproduce on Mendeley Data lists which steps need a GPU, the CyNER checkpoint,
+or an OpenAI key.
 
 ## Layout
 
