@@ -16,15 +16,6 @@ cyber-threat-intelligence (CTI) article they were generated from. It has four st
    bootstrap statistics, and holds the revision-stage studies (human validation, NER audit,
    FActScore/QAGS comparison, combined score, ablations).
 
-## Research objects
-
-| Object | Where |
-|---|---|
-| Data (4,940 Threatpost articles, LLM outputs, reference entities, per-document metrics, human labels, NER audit, fine-tuning data) | Mendeley Data, doi:10.17632/z8sfdnch2c (version 3) |
-| Fine-tuned CyNER checkpoint (xlm-roberta-base) | Hugging Face Hub, `<HF_REPO>` |
-| This repository, tag `v1.0-caee` | code, scripts, notebooks, human-validation webapp |
-
-`REPRODUCE.md` maps every table and figure of the paper to the command that regenerates it.
 
 ## Install
 

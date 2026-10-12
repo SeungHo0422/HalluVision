@@ -224,3 +224,4 @@ notes/*.partial.jsonl
 workspace/
 cyner_ckpt/
 !human_eval/webapp/data/
+REPRODUCE.md
