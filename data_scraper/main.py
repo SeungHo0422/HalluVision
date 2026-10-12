@@ -29,7 +29,6 @@ class DataScraper:
         self.output_dir.mkdir(exist_ok=True)
         
         # Initialize crawlers
-        # self.wiki_crawler = WikiCrawler()
         self.threatpost_crawler = ThreatpostCrawler()
         self.malwarebyte_crawler = MalwarebyteCrawler()
     

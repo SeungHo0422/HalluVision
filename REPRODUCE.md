@@ -92,6 +92,8 @@ python -m analyzer.baselines.hv_metrics --subset notes/baseline_subset.json --co
        --qa-stats notes/doc_stats_qa_gpt4omini.json --entity-freq notes/combined_scorer_demo/entity_freq_gpt4omini.json --output notes/hv_metrics_baseline_subset.json
 python -m analyzer.baselines.baseline_compare --halluvision notes/hv_metrics_baseline_subset.json --factscore notes/factscore_scores.json --qags notes/qags_scores.json --output notes/baseline_comparison.md
 python ../scripts/baseline_vs_human.py                                            # disagreement cases (Table "detector vs annotators")
+python -m analyzer.baselines.human_vs_baseline --labels notes/human_labels_2026-08-07.csv --factscore notes/factscore_scores.json \
+       --qags notes/qags_scores.json --hv notes/hv_metrics_baseline_subset.json --subset notes/baseline_subset.json --output notes/human_vs_baseline.md
 python -m analyzer.baselines.dump_logs --factscore notes/factscore_scores.json --qags notes/qags_scores.json --output-dir notes/baseline_logs
 ```
 
